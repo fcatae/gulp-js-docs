@@ -1,0 +1,1024 @@
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+#pragma once
+
+namespace Js
+{
+    enum TypeId;
+    class DetachedStateBase
+    {
+    protected:
+        TypeId typeId;
+        bool hasBeenClaimed;
+
+    public:
+        DetachedStateBase(TypeId typeId)
+            : typeId(typeId),
+            hasBeenClaimed(false)
+        {
+        }
+
+        TypeId GetTypeId() { return typeId; }
+
+        bool HasBeenClaimed() { return hasBeenClaimed; }
+
+        void MarkAsClaimed() { hasBeenClaimed = true; }
+
+        void CleanUp()
+        {
+            if (!hasBeenClaimed)
+            {
+                DiscardState();
+            }
+            ClearSelfOnly();
+        }
+
+        virtual void ClearSelfOnly() = 0;
+        virtual void DiscardState() = 0;
+        virtual void Discard() = 0;
+    };
+
+    typedef enum ArrayBufferAllocationType
+    {
+        Heap = 0x0,
+        CoTask = 0x1,
+        MemAlloc = 0x02
+    } ArrayBufferAllocationType;
+
+    class ArrayBufferDetachedStateBase : public DetachedStateBase
+    {
+    public:
+        BYTE* buffer;
+        uint32 bufferLength;
+        ArrayBufferAllocationType allocationType;
+
+        ArrayBufferDetachedStateBase(TypeId typeId, BYTE* buffer, uint32 bufferLength, ArrayBufferAllocationType allocationType)
+            : DetachedStateBase(typeId),
+            buffer(buffer),
+            bufferLength(bufferLength),
+            allocationType(allocationType)
+        {}
+
+    };
+}
+
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+// This is the list of internal properties used in the Chakra engine.
+// They become nameless compile time known PropertyRecords, stored as static
+// fields on the InternalPropertyRecords class.
+
+INTERNALPROPERTY(TypeOfPrototypObject)  // Used to store the type of the prototype object in the prototype objects slots
+INTERNALPROPERTY(NonExtensibleType)     // Used to store shared non-extensible type in PathTypeHandler::propertySuccessors map.
+INTERNALPROPERTY(SealedType)            // Used to store shared sealed type in PathTypeHandler::propertySuccessors map.
+INTERNALPROPERTY(FrozenType)            // Used to store shared frozen type in PathTypeHandler::propertySuccessors map.
+INTERNALPROPERTY(StackTrace)            // Stack trace object for Error.stack generation
+INTERNALPROPERTY(StackTraceCache)       // Cache of Error.stack string
+INTERNALPROPERTY(WeakMapKeyMap)         // WeakMap data stored on WeakMap key objects
+INTERNALPROPERTY(HiddenObject)          // Used to store hidden data for JS library code (Intl as an example will use this)
+INTERNALPROPERTY(RevocableProxy)        // Internal slot for [[RevokableProxy]] for revocable proxy in ES6
+INTERNALPROPERTY(MutationBp)            // Used to store strong reference to the mutation breakpoint object
+#undef INTERNALPROPERTY
+
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+/*
+ * These are javascript library functions that might be inlined
+ * by the JIT.
+ *
+ * Notes:
+ * - the argc is the number of args to pass to InlineXXX call, e.g. 2 for Math.pow and 2 for String.CharAt.
+ * - TODO: consider having dst/src1/src2 in separate columns rather than bitmask, this seems to be better for design but we won't be able to see 'all float' by single check.
+ * - TODO: enable string inlines when string type spec is available
+ *
+ *               target         name                argc  flags                                               EntryInfo
+ */
+LIBRARY_FUNCTION(Math,          Abs,                1,    BIF_TypeSpecSrcAndDstToFloatOrInt                 , Math::EntryInfo::Abs)
+LIBRARY_FUNCTION(Math,          Acos,               1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Acos)
+LIBRARY_FUNCTION(Math,          Asin,               1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Asin)
+LIBRARY_FUNCTION(Math,          Atan,               1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Atan)
+LIBRARY_FUNCTION(Math,          Atan2,              2,    BIF_TypeSpecAllToFloat                            , Math::EntryInfo::Atan2)
+LIBRARY_FUNCTION(Math,          Ceil,               1,    BIF_TypeSpecDstToInt | BIF_TypeSpecSrc1ToFloat    , Math::EntryInfo::Ceil)
+LIBRARY_FUNCTION(String,        CodePointAt,        2,    BIF_TypeSpecSrc2ToInt | BIF_UseSrc0               , JavascriptString::EntryInfo::CodePointAt)
+LIBRARY_FUNCTION(String,        CharAt,             2,    BIF_UseSrc0                                       , JavascriptString::EntryInfo::CharAt  )
+LIBRARY_FUNCTION(String,        CharCodeAt,         2,    BIF_UseSrc0                                       , JavascriptString::EntryInfo::CharCodeAt )
+LIBRARY_FUNCTION(String,        Concat,             15,   BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::Concat )
+LIBRARY_FUNCTION(String,        FromCharCode,       1,    BIF_None                                          , JavascriptString::EntryInfo::FromCharCode)
+LIBRARY_FUNCTION(String,        FromCodePoint,      1,    BIF_None                                          , JavascriptString::EntryInfo::FromCodePoint)
+LIBRARY_FUNCTION(String,        IndexOf,            3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::IndexOf)
+LIBRARY_FUNCTION(String,        LastIndexOf,        3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::LastIndexOf)
+LIBRARY_FUNCTION(String,        Link,               2,    BIF_UseSrc0                                       , JavascriptString::EntryInfo::Link)
+LIBRARY_FUNCTION(String,        LocaleCompare,      2,    BIF_UseSrc0                                       , JavascriptString::EntryInfo::LocaleCompare)
+LIBRARY_FUNCTION(String,        Match,              2,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::Match)
+LIBRARY_FUNCTION(String,        Replace,            3,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::Replace)
+LIBRARY_FUNCTION(String,        Search,             2,    BIF_UseSrc0                                       , JavascriptString::EntryInfo::Search)
+LIBRARY_FUNCTION(String,        Slice,              3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::Slice )
+LIBRARY_FUNCTION(String,        Split,              3,    BIF_UseSrc0 | BIF_VariableArgsNumber | BIF_IgnoreDst , JavascriptString::EntryInfo::Split)
+LIBRARY_FUNCTION(String,        Substr,             3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::Substr)
+LIBRARY_FUNCTION(String,        Substring,          3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptString::EntryInfo::Substring)
+LIBRARY_FUNCTION(String,        ToLocaleLowerCase,  1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::ToLocaleLowerCase)
+LIBRARY_FUNCTION(String,        ToLocaleUpperCase,  1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::ToLocaleUpperCase)
+LIBRARY_FUNCTION(String,        ToLowerCase,        1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::ToLowerCase)
+LIBRARY_FUNCTION(String,        ToUpperCase,        1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::ToUpperCase)
+LIBRARY_FUNCTION(String,        Trim,               1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::Trim)
+LIBRARY_FUNCTION(String,        TrimLeft,           1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::TrimLeft)
+LIBRARY_FUNCTION(String,        TrimRight,          1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptString::EntryInfo::TrimRight)
+LIBRARY_FUNCTION(Math,          Cos,                1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Cos)
+LIBRARY_FUNCTION(Math,          Exp,                1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Exp)
+LIBRARY_FUNCTION(Math,          Floor,              1,    BIF_TypeSpecDstToInt | BIF_TypeSpecSrc1ToFloat    , Math::EntryInfo::Floor)
+LIBRARY_FUNCTION(Math,          Log,                1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Log)
+LIBRARY_FUNCTION(Math,          Max,                2,    BIF_TypeSpecSrcAndDstToFloatOrInt                 , Math::EntryInfo::Max)
+LIBRARY_FUNCTION(Math,          Min,                2,    BIF_TypeSpecSrcAndDstToFloatOrInt                 , Math::EntryInfo::Min)
+LIBRARY_FUNCTION(Math,          Pow,                2,    BIF_TypeSpecAllToFloat                            , Math::EntryInfo::Pow)
+LIBRARY_FUNCTION(Math,          Imul,               2,    BIF_TypeSpecAllToInt                              , Math::EntryInfo::Imul)
+LIBRARY_FUNCTION(Math,          Clz32,              1,    BIF_TypeSpecAllToInt                              , Math::EntryInfo::Clz32)
+LIBRARY_FUNCTION(Array,         Push,               2,    BIF_UseSrc0 | BIF_IgnoreDst | BIF_TypeSpecSrc1ToFloatOrInt, JavascriptArray::EntryInfo::Push)
+LIBRARY_FUNCTION(Array,         Pop,                1,    BIF_UseSrc0 | BIF_TypeSpecDstToFloatOrInt         , JavascriptArray::EntryInfo::Pop)
+LIBRARY_FUNCTION(Math,          Random,             0,    BIF_TypeSpecDstToFloat                            , Math::EntryInfo::Random)
+LIBRARY_FUNCTION(Math,          Round,              1,    BIF_TypeSpecDstToInt | BIF_TypeSpecSrc1ToFloat    , Math::EntryInfo::Round)
+LIBRARY_FUNCTION(Math,          Sin,                1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Sin)
+LIBRARY_FUNCTION(Math,          Sqrt,               1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Sqrt)
+LIBRARY_FUNCTION(Math,          Tan,                1,    BIF_TypeSpecUnaryToFloat                          , Math::EntryInfo::Tan)
+LIBRARY_FUNCTION(Array,         Concat,             15,   BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptArray::EntryInfo::Concat)
+LIBRARY_FUNCTION(Array,         IndexOf,            2,    BIF_UseSrc0                                       , JavascriptArray::EntryInfo::IndexOf)
+LIBRARY_FUNCTION(Array,         Includes,           2,    BIF_UseSrc0                                       , JavascriptArray::EntryInfo::Includes)
+LIBRARY_FUNCTION(Array,         IsArray,            1,    BIF_VariableArgsNumber                            , JavascriptArray::EntryInfo::IsArray)
+LIBRARY_FUNCTION(Array,         Join,               2,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptArray::EntryInfo::Join)
+LIBRARY_FUNCTION(Array,         LastIndexOf,        3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptArray::EntryInfo::LastIndexOf)
+LIBRARY_FUNCTION(Array,         Reverse,            1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptArray::EntryInfo::Reverse)
+LIBRARY_FUNCTION(Array,         Shift,              1,    BIF_UseSrc0 | BIF_IgnoreDst                       , JavascriptArray::EntryInfo::Shift)
+LIBRARY_FUNCTION(Array,         Slice,              3,    BIF_UseSrc0 | BIF_VariableArgsNumber              , JavascriptArray::EntryInfo::Slice)
+LIBRARY_FUNCTION(Array,         Splice,             15,   BIF_UseSrc0 | BIF_VariableArgsNumber | BIF_IgnoreDst  , JavascriptArray::EntryInfo::Splice)
+LIBRARY_FUNCTION(Array,         Unshift,            15,   BIF_UseSrc0 | BIF_VariableArgsNumber | BIF_IgnoreDst  , JavascriptArray::EntryInfo::Unshift)
+LIBRARY_FUNCTION(Function,      Apply,              3,    BIF_UseSrc0 | BIF_IgnoreDst                           , JavascriptFunction::EntryInfo::Apply)
+LIBRARY_FUNCTION(Function,      Call,               15,   BIF_UseSrc0 | BIF_IgnoreDst | BIF_VariableArgsNumber  , JavascriptFunction::EntryInfo::Call)
+LIBRARY_FUNCTION(GlobalObject,  ParseInt,           1,    BIF_IgnoreDst                                         , GlobalObject::EntryInfo::ParseInt)
+LIBRARY_FUNCTION(RegExp,        Exec,               2,    BIF_UseSrc0 | BIF_IgnoreDst                           , JavascriptRegExp::EntryInfo::Exec)
+LIBRARY_FUNCTION(Math,          Fround,             1,    BIF_TypeSpecUnaryToFloat                              , Math::EntryInfo::Fround)
+
+// Note: 1st column is currently used only for debug tracing.
+
+// SIMD_JS
+#if ENABLE_NATIVE_CODEGEN
+LIBRARY_FUNCTION(SIMD_Float32x4,    Float32x4,         4, BIF_IgnoreDst                                                 , SIMDFloat32x4Lib::EntryInfo::Float32x4)
+LIBRARY_FUNCTION(SIMD_Float32x4,    Add,               2, BIF_IgnoreDst                                                 , SIMDFloat32x4Lib::EntryInfo::Add)
+
+LIBRARY_FUNCTION(SIMD_Int32x4,      Int32x4,           4, BIF_IgnoreDst                                                 , SIMDInt32x4Lib::EntryInfo::Int32x4)
+LIBRARY_FUNCTION(SIMD_Int32x4,      Add,               2, BIF_IgnoreDst                                                 , SIMDInt32x4Lib::EntryInfo::Add)
+#endif
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+#pragma once
+
+#include "Common.h"
+
+//========================
+// Parser includes
+//========================
+#include "ParserCommon.h"
+#include "ParseFlags.h"
+#include "rterror.h"
+
+// Parser forward decl
+class FuncInfo;
+class Scope;
+class Symbol;
+struct Ident;
+typedef Ident *IdentPtr;
+
+enum SymbolType : byte;
+
+// Regex forward decl
+namespace UnifiedRegex
+{
+    struct RegexPattern;
+    template <typename T> class StandardChars;      // Used by ThreadContext.h
+    struct TrigramAlphabet;
+    struct RegexStacks;
+#if ENABLE_REGEX_CONFIG_OPTIONS
+    class DebugWriter;
+    struct RegexStats;
+    class RegexStatsDatabase;
+#endif
+};
+
+//========================
+
+#include "RuntimeCommon.h"
+
+#include <intsafe.h>
+
+#if !defined(UNREFERENCED_PARAMETER)
+#define UNREFERENCED_PARAMETER(x) (x)
+#endif
+
+class SRCINFO;
+class Lowerer;
+class LowererMD;
+class LowererMDArch;
+class ByteCodeGenerator;
+interface IActiveScriptDataCache;
+class ActiveScriptProfilerHeapEnum;
+
+namespace Js
+{
+    //
+    // Forward declarations
+    //
+    class CharClassifier;
+    typedef int32 MessageId;
+    /* enum */ struct PropertyIds;
+    class DebugDocument;
+    struct Utf8SourceInfo;
+    struct CallInfo;
+    struct InlineeCallInfo;
+    struct InlineCache;
+    struct PolymorphicInlineCache;
+    struct Arguments;
+    class StringDictionaryWrapper;
+    struct ByteCodeDumper;
+    struct ByteCodeReader;
+    struct ByteCodeWriter;
+    class JavascriptConversion;
+    class JavascriptDate;
+    class JavascriptVariantDate;
+    class DateImplementation;
+    class BufferString;
+    class BufferStringBuilder;
+    class ConcatString;
+    class CompoundString;
+    class JavascriptBoolean;
+    class JavascriptBooleanObject;
+    class JavascriptSymbol;
+    class JavascriptSymbolObject;
+    class JavascriptProxy;
+    class JavascriptReflect;
+    class JavascriptEnumeratorIterator;
+    class JavascriptArrayIterator;
+    enum class JavascriptArrayIteratorKind;
+    class JavascriptMapIterator;
+    enum class JavascriptMapIteratorKind;
+    class JavascriptSetIterator;
+    enum class JavascriptSetIteratorKind;
+    class JavascriptStringIterator;
+    class JavascriptPromise;
+    class JavascriptPromiseCapability;
+    class JavascriptPromiseReaction;
+    class JavascriptPromiseAsyncSpawnExecutorFunction;
+    class JavascriptPromiseAsyncSpawnStepArgumentExecutorFunction;
+    class JavascriptPromiseCapabilitiesExecutorFunction;
+    class JavascriptPromiseResolveOrRejectFunction;
+    class JavascriptPromiseReactionTaskFunction;
+    class JavascriptPromiseResolveThenableTaskFunction;
+    class JavascriptPromiseAllResolveElementFunction;
+    struct JavascriptPromiseAllResolveElementFunctionRemainingElementsWrapper;
+    struct JavascriptPromiseResolveOrRejectFunctionAlreadyResolvedWrapper;
+    class JavascriptGenerator;
+    class LiteralString;
+    class ArenaLiteralString;
+    class JavascriptStringObject;
+    struct PropertyDescriptor;
+    class Type;
+    class DynamicType;
+    class ScriptFunctionType;
+    class DynamicTypeHandler;
+    class DeferredTypeHandlerBase;
+    template <bool IsPrototype> class NullTypeHandler;
+    template<size_t size> class SimpleTypeHandler;
+    class PathTypeHandler;
+    class IndexPropertyDescriptor;
+    class DynamicObject;
+    class ArrayObject;
+    class WithScopeObject;
+    class SpreadArgument;
+    class JavascriptString;
+    class StringCopyInfo;
+    class StringCopyInfoStack;
+    class ObjectPrototypeObject;
+    class PropertyString;
+    class ArgumentsObject;
+    class HeapArgumentsObject;
+    class ActivationObject;
+    class JavascriptNumber;
+    class JavascriptNumberObject;
+
+    class ES5ArgumentsObjectEnumerator;
+    class ScriptContextProfiler;
+
+    struct RestrictedErrorStrings;
+    class JavascriptError;
+    class NullEnumerator;
+//SIMD_JS
+    // SIMD
+    class SIMDFloat32x4Lib;
+    class JavascriptSIMDFloat32x4;
+    class SIMDFloat64x2Lib;
+    class JavascriptSIMDFloat64x2;
+    class SIMDInt32x4Lib;
+    class JavascriptSIMDInt32x4;
+    class SIMDInt8x16Lib;
+    class JavascriptSIMDInt8x16;
+
+    class RecyclableObject;
+    class JavascriptRegExp;
+    class JavascriptRegularExpressionResult;
+    template<typename T> class SparseArraySegment;
+    enum class DynamicObjectFlags : uint16;
+    class JavascriptArray;
+    class JavascriptNativeIntArray;
+#if ENABLE_COPYONACCESS_ARRAY
+    class JavascriptCopyOnAccessNativeIntArray;
+#endif
+    class JavascriptNativeFloatArray;
+    class ES5Array;
+    class JavascriptFunction;
+    class ScriptFunction;
+    class ScriptFunctionWithInlineCache;
+    class StackScriptFunction;
+    class GeneratorVirtualScriptFunction;
+    class JavascriptGeneratorFunction;
+    class AsmJsScriptFunction;
+    class JavascriptRegExpConstructor;
+    class JavascriptRegExpEnumerator;
+    class BoundFunction;
+    class JavascriptMap;
+    class JavascriptSet;
+    class JavascriptWeakMap;
+    class JavascriptWeakSet;
+    class DynamicObject;
+    class HostObjectBase;
+    class RootObjectBase;
+    class ModuleRoot;
+    class GlobalObject;
+    class Math;
+    class JavascriptOperators;
+    class JavascriptLibrary;
+    class JavascriptEncodeURI;
+    class JavascriptEncodeURIComponent;
+    class JavascriptDecodeURI;
+    class JavascriptDecodeURIComponent;
+    class DataView;
+    struct ConstructorCache;
+    enum class OpCode : ushort;
+    enum class OpCodeAsmJs : ushort;
+    /* enum */ struct OpLayoutType;
+    /* enum */ struct OpLayoutTypeAsmJs;
+    class ExceptionBase;
+    class OutOfMemoryException;
+    class ScriptDebug;
+    class ScriptContext;
+    struct NativeModule;
+    template <class T> class RcRef;
+    class TaggedInt;
+    class TaggedNumber;
+    struct InterpreterStackFrame;
+    struct ScriptEntryExitRecord;
+    class JavascriptStackWalker;
+    struct AsmJsCallStackLayout;
+    class JavascriptCallStackLayout;
+    class Throw;
+    struct Tick;
+    struct TickDelta;
+    class ByteBlock;
+    class FunctionInfo;
+    class FunctionBody;
+    class ParseableFunctionInfo;
+    struct StatementLocation;
+    class EntryPointInfo;
+    struct LoopHeader;
+    class InternalString;
+    /* enum */ struct JavascriptHint;
+    /* enum */ struct BuiltinFunction;
+    class EnterScriptObject;
+    class PropertyRecord;
+    struct IsInstInlineCache;
+    class EntryPointInfo;
+    class PolymorphicInlineCacheInfo;
+    class PropertyGuard;
+
+    // asm.js
+    namespace ArrayBufferView
+    {
+        enum ViewType;
+    }
+    struct EmitExpressionInfo;
+    struct AsmJsModuleMemory;
+    namespace AsmJsLookupSource
+    {
+        enum Source;
+    }
+    struct AsmJsByteCodeWriter;
+    class AsmJsArrayView;
+    class AsmJsType;
+    class AsmJsRetType;
+    class AsmJsVarType;
+    class AsmJsSymbol;
+    class AsmJsVarBase;
+    class AsmJsVar;
+    class AsmJsConstantImport;
+    class AsmJsArgument;
+    class AsmJsFunc;
+    class AsmJsFunctionDeclaration;
+    class AsmJsFunctionInfo;
+    class AsmJsModuleInfo;
+    class AsmJsGlobals;
+    class AsmJsImportFunction;
+    class AsmJsTypedArrayFunction;
+    class AsmJsMathFunction;
+    class AsmJsMathConst;
+#ifdef ASMJS_PLAT
+    class AsmJsCodeGenerator;
+    class AsmJsEncoder;
+#endif
+    struct MathBuiltin;
+    struct ExclusiveContext;
+    class AsmJsModuleCompiler;
+    class AsmJSCompiler;
+    class AsmJSByteCodeGenerator;
+    enum AsmJSMathBuiltinFunction;
+    //////////////////////////////////////////////////////////////////////////
+    typedef JsUtil::WeakReferenceDictionary<PropertyId, PropertyString, PowerOf2SizePolicy> PropertyStringCacheMap;
+
+    extern const FrameDisplay NullFrameDisplay;
+    extern const FrameDisplay StrictNullFrameDisplay;
+
+    enum ImplicitCallFlags : BYTE
+    {
+        ImplicitCall_HasNoInfo = 0x00,
+        ImplicitCall_None = 0x01,
+        ImplicitCall_ToPrimitive = 0x02 | ImplicitCall_None,
+        ImplicitCall_Accessor = 0x04 | ImplicitCall_None,
+        ImplicitCall_NonProfiledAccessor = 0x08 | ImplicitCall_None,
+        ImplicitCall_External = 0x10 | ImplicitCall_None,
+        ImplicitCall_Exception = 0x20 | ImplicitCall_None,
+        ImplicitCall_NoOpSet = 0x40 | ImplicitCall_None,
+        ImplicitCall_All = 0x7F,
+
+        // Implicit call that is not caused by operations for the instruction (e.g. QC and GC dispose)
+        // where we left script and enter script again. (Also see BEGIN_LEAVE_SCRIPT_INTERNAL)
+        // This doesn't count as an implicit call on the recorded profile, but if it happens on JIT'ed code
+        // it will still cause a bailout. Should happen very rarely.
+        ImplicitCall_AsyncHostOperation = 0x80
+    };
+}
+
+#include "DataStructures\EvalMapString.h"
+
+bool IsMathLibraryId(Js::PropertyId propertyId);
+#include "ByteCode\PropertyIdArray.h"
+#include "ByteCode\AuxArray.h"
+#include "ByteCode\VarArrayVarCount.h"
+
+// module id
+const Js::ModuleID kmodGlobal = 0;
+
+class SourceContextInfo;
+
+
+#include "activdbg100.h"
+#ifndef NTDDI_WIN10
+// These are only defined for the Win10 SDK and above
+// Consider: Refactor to avoid needing these?
+typedef
+enum tagDEBUG_EVENT_INFO_TYPE
+{
+    DEIT_GENERAL = 0,
+    DEIT_ASMJS_IN_DEBUGGING = (DEIT_GENERAL + 1),
+    DEIT_ASMJS_SUCCEEDED = (DEIT_ASMJS_IN_DEBUGGING + 1),
+    DEIT_ASMJS_FAILED = (DEIT_ASMJS_SUCCEEDED + 1)
+} DEBUG_EVENT_INFO_TYPE;
+
+#define SDO_ENABLE_LIBRARY_STACK_FRAME ((SCRIPT_DEBUGGER_OPTIONS)0x8)
+#endif
+
+#include "Base\SourceHolder.h"
+#include "Base\Utf8SourceInfo.h"
+#include "Base\PropertyRecord.h"
+#include "Base\DelayLoadLibrary.h"
+#include "Base\CallInfo.h"
+#include "Language\ExecutionMode.h"
+#include "BackEndAPI.h"
+#include "DetachedStateBase.h"
+
+#include "Base\Constants.h"
+#include "ByteCode\OpLayoutsCommon.h"
+#include "ByteCode\OpLayouts.h"
+#include "ByteCode\OpLayoutsAsmJs.h"
+#include "ByteCode\OpCodeUtil.h"
+#include "Language\Arguments.h"
+
+#include "Types\TypeId.h"
+#include "Types\RecyclableObject.h"
+#include "Base\ExpirableObject.h"
+#include "Types\Type.h"
+#include "Types\StaticType.h"
+#include "Base\CrossSite.h"
+#include "Base\CrossSiteObject.h"
+#include "Base\CrossSiteEnumerator.h"
+#include "Types\JavascriptEnumerator.h"
+#include "Types\DynamicObject.h"
+#include "Types\ArrayObject.h"
+
+#include "Types\TypePath.h"
+#include "Types\TypeHandler.h"
+#include "Types\SimplePropertyDescriptor.h"
+
+#include "Types\DynamicType.h"
+
+#include "Language\StackTraceArguments.h"
+#include "Types\PropertyDescriptor.h"
+#include "Types\ActivationObject.h"
+#include "Base\TempArenaAllocatorObject.h"
+#include "Language\ValueType.h"
+#include "Language\DynamicProfileInfo.h"
+#include "Debug\SourceContextInfo.h"
+#include "Language\InlineCache.h"
+#include "Language\InlineCachePointerArray.h"
+#include "Base\FunctionInfo.h"
+#include "Base\FunctionBody.h"
+#include "Language\JavascriptExceptionContext.h"
+#include "Language\JavascriptExceptionObject.h"
+#include "Base\PerfHint.h"
+
+#include "ByteCode\ByteBlock.h"
+
+#include "Library\JavascriptBuiltInFunctions.h"
+#include "Library\JavascriptString.h"
+#include "Library\StringCopyInfo.h"
+
+
+#include "Library\JavascriptNumber.h"
+#include "Library\JavascriptFunction.h"
+#include "Library\RuntimeFunction.h"
+#include "Library\JavascriptExternalFunction.h"
+
+#include "Base\CharStringCache.h"
+
+#include "Library\JavascriptObject.h"
+#include "Library\BuiltInFlags.h"
+#include "Library\ExternalLibraryBase.h"
+#include "Library\JavascriptLibraryBase.h"
+#include "Library\JavascriptLibrary.h"
+
+#include "Language\JavascriptExceptionOperators.h"
+#include "Language\JavascriptOperators.h"
+
+#include "Library\MathLibrary.h"
+
+
+#include "Base\HiResTimer.h"
+#include "Base\WindowsGlobalizationAdapter.h"
+#include "Base\WindowsFoundationAdapter.h"
+#include "Base\Debug.h"
+
+#ifdef _M_X64
+#include "Language\amd64\stackframe.h"
+#endif
+
+#include "Base\Entropy.h"
+#ifdef ENABLE_BASIC_TELEMETRY
+#include "DirectCall.h"
+#include "LanguageTelemetry.h"
+#else
+#define CHAKRATEL_LANGSTATS_INC_BUILTINCOUNT(builtin)
+#define CHAKRATEL_LANGSTATS_INC_LANGFEATURECOUNT(feature, m_scriptContext)
+#endif
+#include "Base\ThreadContext.h"
+
+#include "Base\StackProber.h"
+
+#include "Language\EvalMapRecord.h"
+#include "Base\RegexPatternMruMap.h"
+#include "Language\JavascriptConversion.h"
+
+#include "Base\ScriptContextOptimizationOverrideInfo.h"
+#include "Base\scriptContextbase.h"
+#include "Base\ScriptContext.h"
+#include "Base\LeaveScriptObject.h"
+#include "Base\PropertyRecord.h"
+
+#include "ByteCode\ByteCodeReader.h"
+#include "Language\TaggedInt.h"
+
+#include "Library\RootObjectBase.h"
+#include "Library\GlobalObject.h"
+
+#include "Library\LiteralString.h"
+#include "Library\ConcatString.h"
+#include "Library\CompoundString.h"
+#include "Library\PropertyString.h"
+
+#include "Library\JavascriptTypedNumber.h"
+#include "Library\SparseArraySegment.h"
+#include "Library\JavascriptError.h"
+#include "Library\JavascriptArray.h"
+
+#include "Library\ArrayBuffer.h"
+#include "Library\TypedArray.h"
+#include "Library\JavascriptBoolean.h"
+
+#include "Types\ScriptFunctionType.h"
+#include "Library\ScriptFunction.h"
+
+
+//
+// .inl files
+//
+
+#include "commoninl.h"
+
+#include "Language\JavascriptConversion.inl"
+#include "Types\RecyclableObject.inl"
+#include "Types\DynamicObject.inl"
+#include "Library\JavascriptBoolean.inl"
+#include "Library\JavascriptArray.inl"
+#include "Library\SparseArraySegment.inl"
+#include "Library\JavascriptNumber.inl"
+#include "Library\JavascriptLibrary.inl"
+#include "Language\InlineCache.inl"
+#include "Language\InlineCachePointerArray.inl"
+#include "Language\JavascriptOperators.inl"
+#include "Language\TaggedInt.inl"
+
+
+#ifndef USED_IN_STATIC_LIB
+#ifdef ENABLE_INTL_OBJECT
+
+//The "helper" methods below are to resolve external symbol references to our delay-loaded libraries.
+inline HRESULT WindowsCreateString(_In_reads_opt_(length) const WCHAR * sourceString, UINT32 length, _Outptr_result_maybenull_ _Result_nullonfailure_ HSTRING * string)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsCreateString(sourceString, length, string);
+}
+
+inline HRESULT WindowsCreateStringReference(_In_reads_opt_(length + 1) const WCHAR * sourceString, UINT32 length, _Out_ HSTRING_HEADER * header, _Outptr_result_maybenull_ _Result_nullonfailure_ HSTRING * string)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsCreateStringReference(sourceString, length, header, string);
+}
+
+inline HRESULT WindowsDeleteString(_In_opt_ HSTRING string)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsDeleteString(string);
+}
+
+inline PCWSTR WindowsGetStringRawBuffer(_In_opt_ HSTRING string, _Out_opt_ UINT32 * length)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsGetStringRawBuffer(string, length);
+}
+
+inline HRESULT WindowsCompareStringOrdinal(_In_opt_ HSTRING string1, _In_opt_ HSTRING string2, _Out_ INT32 * result)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsCompareStringOrdinal(string1, string2, result);
+}
+
+inline HRESULT WindowsDuplicateString(_In_opt_ HSTRING original, _Outptr_result_maybenull_ _Result_nullonfailure_ HSTRING *newString)
+{
+    return ThreadContext::GetContextForCurrentThread()->GetWindowsGlobalizationLibrary()->WindowsDuplicateString(original, newString);
+}
+#endif
+#endif
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+#pragma once
+
+// Runtime.h has both definitions and #include other runtime files.
+// Definitions here are extracted definitions (not #include's) from Runtime.h that core Runtime .h's can be used without #including full Runtime.h
+
+extern int TotalNumberOfBuiltInProperties;
+
+namespace Js
+{
+    // Forwards
+    class RecyclableObject;
+    struct CallInfo;
+    class PropertyRecord;
+    class JavascriptString;
+    struct FrameDisplay;
+    class TypedArrayBase;
+
+#if _M_IX86
+#define unaligned
+#elif _M_X64 || _M_ARM || _M_ARM64
+#define unaligned __unaligned
+#else
+#error Must define alignment capabilities for processor
+#endif
+
+    typedef uint32 RegSlot;
+    typedef uint16 ArgSlot;
+    typedef uint16 PropertyIndex;
+    typedef int32 BigPropertyIndex;
+    typedef unsigned char PropertyAttributes;
+    typedef uint32 SourceId;
+    typedef uint16 ProfileId;
+    typedef uint32 InlineCacheIndex;
+
+    // Inline cache flags when property of the object is not writable
+    enum InlineCacheFlags : char {
+        InlineCacheNoFlags              = 0x0,
+        InlineCacheGetterFlag           = 0x1,
+        InlineCacheSetterFlag           = 0x2,
+    };
+
+    #define PropertyNone            0x00
+    #define PropertyEnumerable      0x01
+    #define PropertyConfigurable    0x02
+    #define PropertyWritable        0x04
+    #define PropertyDeleted         0x08
+    #define PropertyLetConstGlobal  0x10
+    #define PropertyDeclaredGlobal  0x20
+    #define PropertyLet             0x40
+    #define PropertyConst           0x80
+    // No more flags will fit unless PropertyAttributes is bumped up to a short instead of char
+    #define PropertyBuiltInMethodDefaults (PropertyConfigurable|PropertyWritable)
+    #define PropertyDynamicTypeDefaults (PropertyConfigurable|PropertyWritable|PropertyEnumerable)
+    #define PropertyLetDefaults   (PropertyEnumerable|PropertyConfigurable|PropertyWritable|PropertyLet)
+    #define PropertyConstDefaults (PropertyEnumerable|PropertyConfigurable|PropertyConst)
+    #define PropertyDeletedDefaults (PropertyDeleted | PropertyWritable | PropertyConfigurable)
+    #define PropertyNoRedecl        (PropertyLet | PropertyConst)
+    #define PropertyClassMemberDefaults (PropertyConfigurable|PropertyWritable)
+
+    BEGIN_ENUM_UINT(InternalPropertyIds)
+#define INTERNALPROPERTY(n) n,
+#include "InternalPropertyList.h"
+        Count,
+    END_ENUM_UINT()
+
+    inline BOOL IsInternalPropertyId(PropertyId propertyId)
+    {
+        return propertyId < InternalPropertyIds::Count;
+    }
+
+    BEGIN_ENUM_UINT(PropertyIds)
+        _none = InternalPropertyIds::Count,
+#define ENTRY_INTERNAL_SYMBOL(n) n,
+#define ENTRY_SYMBOL(n, d) n,
+#define ENTRY(n) n,
+#define ENTRY2(n, s) n,
+#include "Base\JnDirectFields.h"
+        _countJSOnlyProperty,
+    END_ENUM_UINT()
+
+    inline BOOL IsBuiltInPropertyId(PropertyId propertyId)
+    {
+        return propertyId < TotalNumberOfBuiltInProperties;
+    }
+
+    #define PropertyTypesNone                      0x00
+    #define PropertyTypesReserved                  0x01  // This bit is always to prevent the DWORD in DynamicTypeHandler looking like a pointer.
+    #define PropertyTypesWritableDataOnly          0x10  // Indicates that a type handler has only writable data properties
+                                                         // (no accessors or non-writable properties)
+    #define PropertyTypesWritableDataOnlyDetection 0x20  // Set on each call to DynamicTypeHandler::SetHasOnlyWritableDataProperties.
+    #define PropertyTypesInlineSlotCapacityLocked  0x40  // Indicates that the inline slot capacity has been shrunk already and shouldn't be touched again.
+    #define PropertyTypesAll                       0x70
+    typedef unsigned char PropertyTypes;                 // Holds flags that represent general information about the types of properties
+                                                         // handled by a type handler.
+    BEGIN_ENUM_UINT(JavascriptHint)
+        None,                                   // no hint. use the default for that object
+        HintString  = 0x00000001,               // 'string' hint in ToPrimitiveValue()
+        HintNumber  = 0x00000002,               // 'number' hint
+    END_ENUM_UINT()
+
+    enum DescriptorFlags
+    {
+        None = 0x0,      // No data/accessor descriptor
+        Accessor = 0x1,  // An accessor descriptor is present
+        Data = 0x2,      // A data descriptor is present
+        Writable = 0x4,  // Data descriptor is writable
+        Const = 0x8,     // Data is const, meaning we throw on attempt to write to it
+        Proxy = 0x10,    // data returned from proxy.
+        WritableData = Data | Writable // Data descriptor is writable
+    };
+
+    BEGIN_ENUM_BYTE(BuiltinFunction)
+#define LIBRARY_FUNCTION(obj, name, argc, flags, entry) obj##_##name,
+#include "LibraryFunction.h"
+#undef LIBRARY_FUNCTION
+        Count,
+        None,
+    END_ENUM_BYTE()
+
+    typedef void * Var;
+    typedef WriteBarrierPtr<void> WriteBarrierVar;
+
+    typedef Var(__cdecl *JavascriptMethod)(RecyclableObject*, CallInfo, ...);
+    typedef Var(*ExternalMethod)(RecyclableObject*, CallInfo, Var*);
+
+
+    const uintptr AtomTag_Object    = 0x0;
+
+#if INT32VAR
+    // The 49th bit is set in this representation
+    const int32 VarTag_Shift        = 48;
+    const uintptr AtomTag_IntPtr    = (((uintptr)0x1i64) << VarTag_Shift);
+    const int32 AtomTag_Int32       = 0x0;     // lower 32-bits of a tagged integer
+    const uintptr AtomTag           = 0x1;
+    const int32 AtomTag_Multiply    = 1;
+    const int32 AtomTag_Pair        = 0x00010001;  // Pair of tags
+#else
+    const uintptr AtomTag_IntPtr     = 0x1;
+    const int32 AtomTag_Int32        = 0x1;    // lower 32-bits of a tagged integer
+    const uintptr AtomTag            = 0x1;
+    const int32 VarTag_Shift         = 1;
+    const int32 AtomTag_Multiply     = 1 << VarTag_Shift;
+#endif
+
+#if FLOATVAR
+    const uint64 FloatTag_Value      = 0xFFFCull << 48;
+#endif
+    template <bool IsPrototypeTemplate> class NullTypeHandler;
+
+    template <typename TPropertyIndex, typename TMapKey, bool IsNotExtensibleSupported> class SimpleDictionaryTypeHandlerBase;
+    template <typename TPropertyIndex, typename TMapKey, bool IsNotExtensibleSupported> class SimpleDictionaryUnorderedTypeHandler;
+    template <typename TPropertyIndex> class DictionaryTypeHandlerBase;
+    template <typename TPropertyIndex> class ES5ArrayTypeHandlerBase;
+
+    typedef NullTypeHandler<false> NonProtoNullTypeHandler;
+    typedef NullTypeHandler<true> ProtoNullTypeHandler;
+
+    typedef SimpleDictionaryTypeHandlerBase<PropertyIndex, const PropertyRecord*, false>    SimpleDictionaryTypeHandler;
+    typedef SimpleDictionaryTypeHandlerBase<PropertyIndex, const PropertyRecord*, true>     SimpleDictionaryTypeHandlerNotExtensible;
+    typedef SimpleDictionaryTypeHandlerBase<BigPropertyIndex, const PropertyRecord*, false> BigSimpleDictionaryTypeHandler;
+    typedef SimpleDictionaryTypeHandlerBase<BigPropertyIndex, const PropertyRecord*, true>  BigSimpleDictionaryTypeHandlerNotExtensible;
+
+    typedef SimpleDictionaryUnorderedTypeHandler<PropertyIndex, const PropertyRecord*, false>    SimpleDictionaryUnorderedPropertyRecordKeyedTypeHandler;
+    typedef SimpleDictionaryUnorderedTypeHandler<PropertyIndex, const PropertyRecord*, true>     SimpleDictionaryUnorderedPropertyRecordKeyedTypeHandlerNotExtensible;
+    typedef SimpleDictionaryUnorderedTypeHandler<BigPropertyIndex, const PropertyRecord*, false> BigSimpleDictionaryUnorderedPropertyRecordKeyedTypeHandler;
+    typedef SimpleDictionaryUnorderedTypeHandler<BigPropertyIndex, const PropertyRecord*, true>  BigSimpleDictionaryUnorderedPropertyRecordKeyedTypeHandlerNotExtensible;
+
+    typedef SimpleDictionaryUnorderedTypeHandler<PropertyIndex, JavascriptString*, false>    SimpleDictionaryUnorderedStringKeyedTypeHandler;
+    typedef SimpleDictionaryUnorderedTypeHandler<PropertyIndex, JavascriptString*, true>     SimpleDictionaryUnorderedStringKeyedTypeHandlerNotExtensible;
+    typedef SimpleDictionaryUnorderedTypeHandler<BigPropertyIndex, JavascriptString*, false> BigSimpleDictionaryUnorderedStringKeyedTypeHandler;
+    typedef SimpleDictionaryUnorderedTypeHandler<BigPropertyIndex, JavascriptString*, true>  BigSimpleDictionaryUnorderedStringKeyedTypeHandlerNotExtensible;
+
+    typedef DictionaryTypeHandlerBase<PropertyIndex> DictionaryTypeHandler;
+    typedef DictionaryTypeHandlerBase<BigPropertyIndex> BigDictionaryTypeHandler;
+
+    typedef ES5ArrayTypeHandlerBase<PropertyIndex> ES5ArrayTypeHandler;
+    typedef ES5ArrayTypeHandlerBase<BigPropertyIndex> BigES5ArrayTypeHandler;
+
+    template <int N> class ConcatStringN;
+    typedef ConcatStringN<2> ConcatStringN2;
+    typedef ConcatStringN<4> ConcatStringN4;
+    typedef ConcatStringN<6> ConcatStringN6;
+    typedef ConcatStringN<7> ConcatStringN7;
+
+    template <wchar_t L, wchar_t R> class ConcatStringWrapping;
+    typedef ConcatStringWrapping<L'[', L']'> ConcatStringWrappingSB;
+    typedef ConcatStringWrapping<L'{', L'}'> ConcatStringWrappingB;
+    typedef ConcatStringWrapping<L'"', L'"'> ConcatStringWrappingQ;
+
+} // namespace Js.
+
+namespace JSON
+{
+    class JSONParser;
+}
+
+//
+// Below was moved from ByteCodeGenerator.h to share with jscript9diag.
+//
+#define REGSLOT_TO_VARREG(r) (r)
+// To map between real reg number and const reg number, add 2 and negate.
+// This way, 0xFFFF (no register) maps to itself, and 0xFFFF is never a valid number.
+#define REGSLOT_TO_CONSTREG(r) ((Js::RegSlot)(0 - (r + 2)))
+#define CONSTREG_TO_REGSLOT(r) ((Js::RegSlot)(0 - (r + 2)))
+
+//
+// Shared string literals
+//
+#define JS_DISPLAY_STRING_NAN           L"NaN"
+#define JS_DISPLAY_STRING_DATE          L"Date"
+#define JS_DISPLAY_STRING_INVALID_DATE  L"Invalid Date"
+#define JS_DISPLAY_STRING_FUNCTION_ANONYMOUS        L"\012function() {\012    [native code]\012}\012"
+#define JS_DISPLAY_STRING_FUNCTION_HEADER           L"function "
+#define JS_DISPLAY_STRING_FUNCTION_BODY             L"() { [native code] }"
+
+#define JS_DIAG_TYPE_JavascriptRegExp               L"Object, (Regular Expression)"
+
+#define JS_DIAG_VALUE_JavascriptRegExpConstructor   L"{...}"
+#define JS_DIAG_TYPE_JavascriptRegExpConstructor    L"Object, (RegExp constructor)"
+
+#define JS_DEFAULT_CTOR_DISPLAY_STRING              L"constructor() {}"
+#define JS_DEFAULT_EXTENDS_CTOR_DISPLAY_STRING      L"constructor(...args) { super(...args); }"
+
+
+#include "Language\SIMDUtils.h"
+
+
+//-------------------------------------------------------------------------------------------------------
+// Copyright (C) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
+//-------------------------------------------------------------------------------------------------------
+#ifdef DEFINE_ALL_FIELDS
+#define DEFINE_FUNCTION_PROXY_FIELDS 1
+#define DEFINE_PARSEABLE_FUNCTION_INFO_FIELDS 1
+#define DEFINE_FUNCTION_BODY_FIELDS 1
+#endif
+
+// Default declaration for FunctionBody.h
+#ifndef DECLARE_SERIALIZABLE_FIELD
+#define DECLARE_SERIALIZABLE_FIELD(type, name, serializableType) type name
+#endif
+
+#ifndef DECLARE_MANUAL_SERIALIZABLE_FIELD
+#define DECLARE_MANUAL_SERIALIZABLE_FIELD(type, name, serializableType, serializeHere) type name
+#endif
+
+#ifdef CURRENT_ACCESS_MODIFIER
+#define PROTECTED_FIELDS protected:
+#define PRIVATE_FIELDS   private:
+#define PUBLIC_FIELDS    public:
+#else
+#define CURRENT_ACCESS_MODIFIER
+#define PROTECTED_FIELDS
+#define PRIVATE_FIELDS
+#define PUBLIC_FIELDS
+#endif
+
+#if DEFINE_FUNCTION_PROXY_FIELDS
+PROTECTED_FIELDS
+    DECLARE_MANUAL_SERIALIZABLE_FIELD(uint, m_nestedCount, UInt32, false);
+
+CURRENT_ACCESS_MODIFIER
+#endif
+
+#if DEFINE_PARSEABLE_FUNCTION_INFO_FIELDS
+PROTECTED_FIELDS
+    DECLARE_SERIALIZABLE_FIELD(ulong, m_grfscr, ULong);                 // For values, see fscr* values in scrutil.h.
+    DECLARE_SERIALIZABLE_FIELD(ArgSlot, m_inParamCount, ArgSlot);         // Count of 'in' parameters to method
+    DECLARE_SERIALIZABLE_FIELD(ArgSlot, m_reportedInParamCount, ArgSlot); // Count of 'in' parameters to method excluding default and rest
+    DECLARE_SERIALIZABLE_FIELD(charcount_t, m_cchStartOffset, CharCount);   // offset in characters from the start of the document.
+    DECLARE_SERIALIZABLE_FIELD(charcount_t, m_cchLength, CharCount);        // length of the function in code points (not bytes)
+    DECLARE_SERIALIZABLE_FIELD(uint, m_cbLength, UInt32);              // length of the function in bytes
+
+PUBLIC_FIELDS
+    DECLARE_SERIALIZABLE_FIELD(UINT, scopeSlotArraySize, UInt32);
+
+CURRENT_ACCESS_MODIFIER
+#endif
+
+#if DEFINE_FUNCTION_BODY_FIELDS
+PUBLIC_FIELDS
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, m_varCount, RegSlot);           // Count of non-constant locals
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, m_constCount, RegSlot);         // Count of enregistered constants
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, m_firstTmpReg, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, m_outParamMaxDepth, RegSlot);   // Count of call depth in a nested expression
+    DECLARE_SERIALIZABLE_FIELD(uint, m_byteCodeCount, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(uint, m_byteCodeWithoutLDACount, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(uint, m_byteCodeInLoopCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint16, m_envDepth, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(uint16, m_argUsedForBranch, UInt16);
+
+PRIVATE_FIELDS
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledLdElemCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledStElemCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledCallSiteCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledArrayCallSiteCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledDivOrRemCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledSwitchCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledReturnTypeCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(ProfileId, profiledSlotCount, UInt16);
+    DECLARE_SERIALIZABLE_FIELD(uint, loopCount, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(FunctionBodyFlags, flags, FunctionBodyFlags);
+    DECLARE_SERIALIZABLE_FIELD(bool, m_hasFinally, Bool);
+    DECLARE_SERIALIZABLE_FIELD(bool, hasScopeObject, Bool);
+    DECLARE_SERIALIZABLE_FIELD(bool, hasCachedScopePropIds, Bool);
+    DECLARE_SERIALIZABLE_FIELD(uint, inlineCacheCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, rootObjectLoadInlineCacheStart, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, rootObjectLoadMethodInlineCacheStart, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, rootObjectStoreInlineCacheStart, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, isInstInlineCacheCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, referencedPropertyIdCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, objLiteralCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, literalRegexCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(uint, innerScopeCount, UInt32);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, localClosureRegister, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, localFrameDisplayRegister, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, envRegister, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, thisRegisterForEventHandler, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, firstInnerScopeRegister, RegSlot);
+    DECLARE_SERIALIZABLE_FIELD(RegSlot, funcExprScopeRegister, RegSlot);
+
+CURRENT_ACCESS_MODIFIER
+#endif
+
+#undef DEFINE_ALL_FIELDS
+#undef DEFINE_FUNCTION_PROXY_FIELDS
+#undef DEFINE_PARSEABLE_FUNCTION_INFO_FIELDS
+#undef DEFINE_FUNCTION_BODY_FIELDS
+#undef CURRENT_ACCESS_MODIFIER
+#undef DECLARE_MANUAL_SERIALIZABLE_FIELD
+#undef DECLARE_SERIALIZABLE_FIELD
+#undef PROTECTED_FIELDS
+#undef PRIVATE_FIELDS
+#undef PUBLIC_FIELDS
